@@ -1,0 +1,1835 @@
+---
+title: "Forecasting - Final Assignment"
+author: Student ID XXXXXXXX8
+date: "`r Sys.Date()`"
+subtitle: "Word Count: 4141 words"
+output:
+    #bookdown::word_document2:
+    #reference_docx: reference.docx
+    bookdown::pdf_document2:
+        toc: no
+        number_sections: true
+        pandoc_args: [
+      "--variable=fontsize:12pt",
+      "--variable=linestretch:1.5"
+    ]
+#documentclass: report
+---
+\newpage
+```{=latex}
+\setcounter{tocdepth}{4}
+\tableofcontents
+```
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = NA, echo = FALSE, message=FALSE, warning=FALSE, fig.pos = 'H')
+# Load required libraries
+library(forecast)
+library(Mcomp)
+library(ggplot2)
+library(fpp3)
+library(fable)
+library(dplyr)
+library(tibble)
+```
+
+# Executive Summary 
+
+This report presents the findings of a comprehensive analysis and evaluation of various forecasting methods applied to time series data from the M3 competition data set. The project aimed to explore the efficacy of different statistical models in accurately predicting future values of quarterly time series data, both through manual forecasting for individual series and batch forecasting for a range of series.
+
+Through meticulous analysis and comparison, it became evident that the regression model stood out as the most accurate method in manual forecasting, surpassing both exponential smoothing with the Holt-Winters method and ARIMA models in terms of accuracy metrics. Moreover, during batch forecasting, evaluations of automatic ARIMA, automatic ETS, and TBATS models against Theta and Damped Exponential Smoothing models failed to surpass the latter in performance.
+
+# Introduction 
+
+Forecasting is a vital tool for decision-making across diverse domains. It enables organisations to anticipate future trends, allocate resources efficiently, and mitigate risks effectively. In practice, accurate forecasting is indispensable for strategic planning, inventory management, and market analysis.
+
+This report delves into the practical aspects of forecasting by evaluating different statistical models applied to time series data. Time series forecasting, encompassing manual and batch approaches, is instrumental for businesses and organisations to optimise operations and capitalise on emerging opportunities.
+
+The report focuses on analysing and forecasting quarterly time series data from the M3 competition data set, spanning various sectors such as finance, economics, and demographics. Each time series represents a historical record of a specific variable, such as sales numbers, stock prices, or production levels, recorded at regular intervals—yearly, quarterly, or monthly. By leveraging manual forecasting techniques for individual series and batch forecasting methods for multiple series simultaneously, this study aims to provide insights into the effectiveness of different forecasting methodologies.
+
+According to Koning et al. (2005), four main conclusions of the M3 competition were derived from descriptive statistics analysis with no formal statistical testing. First, the complexity of forecasting methods does not always correlate with forecast accuracy; simpler methods can be equally effective. Second, the performance rankings of different methods vary depending on the accuracy measure employed. Third, combining various forecasting methods tends to yield better results than using individual methods alone, demonstrating superior performance overall. Lastly, the effectiveness of forecasting methods is influenced by the length of the forecasting horizon.
+
+# Manual Modelling 
+
+## Exploratory analysis
+
+In this section, we focus on series ID 1394 from the M3 forecasting competition, which tracks quarterly demographic data, specifically unemployment in Canada. This time series is valuable for analysts and researchers studying labour market trends in Canada and could aid in developing forecasting models to predict future unemployment based on historical patterns. We assume the data has been adjusted to represent per capita data. A summary of series 1394 is provided below (R code \@ref(appendix-1)).
+
+```{r echo=FALSE}
+# Load the data
+frequency <- 4
+data <- M3[[1394]]
+data <- subset(data, frequency == frequency)
+cat("Table 1: M3 competition series ID 1394")
+data
+```
+
+Within the context of the M3 competition data set, ‘x’ serves as the historical (a.k.a. training) time series data from 1962 to 1973, which is used to develop and calibrate forecasting models, while ‘xx’ acts as the future (a.k.a. test) data set from 1974 to 1975, which is used to evaluate the performance and accuracy of the models’ predictions.
+
+Producing a time series plot of the historical data (Figure \@ref(fig:f1)) and its summary will help gain insights into the data’s characteristics (R code \@ref(appendix-2)).
+
+```{r echo=FALSE}
+# Assign the historical data to a variable for training the model
+training_data <- data$x
+# Assign the future data points for testing the model's predictions
+test_data <- data$xx
+```
+
+```{r f1, fig.cap="Quarterly unemployment in Canada in 1962-1973", fig.width=6, fig.height=3.5, echo=FALSE}
+# Generate a time series plot of the training data
+autoplot(training_data, 
+         type = "l",        
+         xlab = "Year",      
+         ylab = "Unemployment",  
+         main = "Quarterly unemployment in Canada in 1962-1973 (Series ID 1394)") 
+```
+
+```{r echo=FALSE}
+cat("Table 2: Summary of the quarterly unemployment in Canada in 1962-1973")
+
+summary(training_data)
+```
+
+The series exhibits a downward trend before 1966, followed by a clear upward trend starting in 1966, indicating an increase in the unemployed since then. A strong seasonal pattern is evident in Figure \@ref(fig:f2), with peaks and troughs corresponding to particular times of the year (Q1 and Q3, respectively) (Figure \@ref(fig:f3)), suggesting likely annual seasonality influenced by various factors related to economic activity, societal habits, and institutional schedules (R code \@ref(appendix-3)).
+
+```{r f2, fig.cap="Seasonality plot of the quarterly unemployment in Canada in 1962-1973", echo=FALSE, fig.width=6, fig.height=3.5, fig.pos = 'H'}
+ggseasonplot(training_data, year.labels=TRUE, year.labels.left=TRUE) +
+  ylab("Unemployment") +
+  ggtitle("Seasonality: quarterly unemployment in Canada")
+```
+
+```{r f3, fig.cap="Seasonal subseries plot of the quarterly unemployment in Canada in 1962-1973", echo=FALSE, fig.width=6, fig.height=3, fig.pos = 'H'}
+ggsubseriesplot(training_data) +
+  ylab("Unemployment") +
+  ggtitle("Seasonal subseries: quarterly unemployment in Canada")
+```
+
+The lagged scatter plots of the quarterly Canadian unemployment (Figure \@ref(fig:f4)) reveal a strongly positive relationship at lag 4, reflecting the strong seasonality in the data (R code \@ref(appendix-4)).
+
+```{r f4, fig.cap="Lagged scatter plots of the quarterly unemployment in Canada in 1962-1973", fig.pos = 'H', echo=FALSE}
+gglagplot(training_data) +
+  #ggtitle("Lagged scatter plot: quarterly unemployment") +
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+As the data are both trended and seasonal, we observe the slow decay in autocorrelation associated with the trend component alongside more significant spikes at lags matching the seasonal period in Figure \@ref(fig:f5) (R code \@ref(appendix-5)).
+
+```{r f5, fig.cap="Autocorrelation Function (ACF) plot of the quarterly unemployment in Canada in 1962-1973", echo=FALSE, fig.width=6, fig.height=3.5, fig.pos = 'H'}
+ggAcf(training_data, main = "ACF: unemployment in Canada in 1962-1973")
+```
+
+As the data exhibits both trend and seasonality, decomposition can be a valuable insight by separating the time series into trend, seasonality, and residual components. Upon decomposing the time series, the multiplicative type of decomposition effectively subtracts the seasonal and trend-cycle components from the training data in Figure \@ref(fig:f6) (R code \@ref(appendix-6)).
+
+```{r f6, fig.cap="Decomposed quarterly unemployment in Canada in 1962-1973", echo=FALSE, fig.width=6, fig.height=4.5, fig.pos = 'H'}
+training_decomposed <- decompose(training_data, type = "multiplicative")
+autoplot(training_decomposed)+xlab("Year")
+```
+
+However, discerning longer-term cyclical fluctuations in Canada’s unemployment due to broader economic conditions within the limited time frame of the plot (spanning from 1962 to 1973) may be challenging. Extended data covering a more prolonged period would be necessary to reliably identify and confirm these broader economic trends and their impact on unemployment.
+
+Based on the above, any forecasts of this series would need to capture the trend and seasonal patterns.
+
+Detecting outliers in time series data in Figure \@ref(fig:f7) is critical as they can significantly impact analysis and forecasts (R code \@ref(appendix-7)). 
+
+```{r f7, fig.cap="Distribution of unemployment in Canada in 1962-1973 per quarter", fig.pos = 'H', fig.width=6, fig.height=3.5, echo=FALSE}
+# Ensure the time series has the correct frequency set
+training_ts <- ts(training_data, frequency = 4)
+
+# Convert the time series to a data frame for plotting
+# Create a factor indicating the quarter
+df <- data.frame(
+  Value = as.numeric(training_ts),
+  Quarter = factor(rep(1:4, length.out = length(training_ts)))
+)
+
+ggplot(df, aes(x = Quarter, y = Value)) +
+  geom_boxplot() +
+  labs(title = "Distribution of unemployment in Canada in 1962-1973", x = "Quarter", y = "Unemployment")
+
+```
+
+By generating boxplots for each quarter to detect outliers within each period, we conclude there are no outliers that could affect forecasting.
+
+## Regression modelling, analysis and forecasting
+
+Considering the presence of changing trends and seasonality in the historical data, a regression model with trend and seasonal components as predictors seems appropriate. However, to adjust the model to capture the parabolic shape of the time series, we add quadratic and cubic trend components to capture any curvature or parabolic shape in the training time series data. We will fit a polynomial regression model using the `tslm()` function in R, specifically designed for time series data (R code \@ref(appendix-8)).
+
+```{r echo=FALSE}
+# Regression Model
+regression_model <- tslm(training_data ~ trend + I(trend^2) + I(trend^3)+ season)
+cat("Table 3: Regression model summary")
+summary(regression_model)
+```
+
+The model demonstrates a good fit to the training data in Figure \@ref(fig:f8) (R code \@ref(appendix-9)), explaining approximately 92.45% of the variance, and is statistically significant based on the F-statistic. The coefficients for the trend terms and seasonal components are statistically significant at conventional levels, indicating their significant effects on the response variable. Specifically, there is an average upward trend of 54.20 unemployed units per quarter. On average, the second quarter experienced unemployment at approximately 986.3 units lower than the first quarter, the third quarter was 1810 units lower, and the fourth quarter was 1544 units lower.
+
+```{r f8, fig.cap="Regression model: quarterly unemployment in Canada in 1962-1973 vs. fitted values", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(regression_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+  ggtitle("Regression model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+The residual standard error is relatively low (366.9), suggesting that the model provides a satisfactory fit to the data. Based on the Shapiro-Wilk test (R code \@ref(appendix-10)), there is no sufficient evidence to conclude that the residuals significantly depart from a normal distribution, indicating that the assumption of normality may be reasonable.
+
+```{r echo=FALSE}
+# Test for normality
+cat("Table 4: Shapiro-Wilk test of the regression model's training residuals")
+shapiro.test(regression_model$residuals)
+```
+
+The residuals appear to be normally distributed, and there are no apparent patterns in the residual plots in Figure \@ref(fig:f9) (R code \@ref(appendix-11)).
+
+```{r f9, fig.cap="Training residuals from the regression model", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Plot histogram of residuals
+checkresiduals(regression_model)
+```
+
+However, the Breusch-Godfrey test, indicating evidence of serial correlation in the residuals from the linear regression model, and the residuals' Autocorrelation Function plot reveals significant autocorrelation at lag 1, suggesting a violation of the assumption of independence.
+
+Subsequently, the Ljung-Box test confirms significant autocorrelation in the training residuals at lag 1, indicating that a time series model explicitly addressing autocorrelation, such as an ARIMA model, may offer a better fit (R code \@ref(appendix-12)).
+
+```{r echo=FALSE}
+# Perform Ljung-Box test on the residuals
+ljung_box_test <- Box.test(regression_model$residuals, lag = 1, type = "Ljung-Box")
+
+# Print the results
+cat("Table 5: Box-Ljung test of the regression model's training residuals")
+ljung_box_test
+```
+
+When evaluating the regression model’s forecasting performance on future data displayed as a dashed black line in Figure \@ref(fig:f10) (R code \@ref(appendix-13)), we notice that it predicts unemployment reasonably well for the first four quarters, with the future data lying within the 80% confidence interval. However, future unemployment sharply increased during the last four quarters, contrary to the regression model’s forecast, which exhibits a clear downward trend. This discrepancy suggests that the model may not capture specific patterns or information present in the data.
+
+```{r f10, fig.cap="Regression model's eight-quarter forecast of unemployment in Canada", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+
+# Forecast
+forecast_regression <- forecast(regression_model, h = 8, PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(regression_model, level = c(0.95)), series = "95% CI") +
+      autolayer(forecast(regression_model, level = c(0.8)), series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("Regression model: forecasts of unemployment in Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data")) 
+
+```
+
+The Ljung-Box test suggests that there may be some remaining patterns or information in the out-of-sample residuals that the model has not captured, as the p-value (0.07898) is greater than the conventional significance level of 0.05 (R code \@ref(appendix-14)).
+
+```{r f010, fig.cap="Regression model: out-of-sample residuals", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Calculate residuals
+residuals_regression <- forecast_regression$mean - test_data
+checkresiduals(residuals_regression)
+```
+
+We can use various evaluation metrics, such as MAE, RMSE, and MAPE, to evaluate the accuracy of the regression model's forecasts of future data (R code \@ref(appendix-15)). 
+
+```{r echo=FALSE}
+# Calculate evaluation metrics
+mae_regression <- mean(abs(residuals_regression))
+rmse_regression <- sqrt(mean(residuals_regression^2))
+mape_regression <- mean(abs(residuals_regression / test_data)) * 100
+bias_regression <- mean(residuals_regression)
+
+# Print evaluation metrics
+#cat("Mean Absolute Error (MAE):", mae_regression, "\n")
+#cat("Root Mean Squared Error (RMSE):", rmse_regression, "\n")
+#cat("Mean Absolute Percentage Error (MAPE):", mape_regression, "%\n")
+#cat("Forecast Bias:", bias_regression, "\n")
+
+# Create a data frame for the metrics
+evaluation_regression <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", "Forecast Bias"),
+  Value = c(mae_regression, rmse_regression, mape_regression, bias_regression)
+)
+
+# Remove column names
+colnames(evaluation_regression) <- NULL
+
+# Print the data frame
+cat("Table 6: Error measures evaluating the regression model's out-of-sample accuracy")
+print(evaluation_regression, row.names = FALSE, col.names = FALSE)
+```
+
+An RMSE of 1812.552 indicates that, on average, the forecasted values deviate from the actual future values by approximately 1812.552 units. The MAPE suggests that, on average, the forecasts deviate from the actual future values by approximately 20.50523%. The bias indicates that, on average, the forecasts tend to underestimate the actual values by approximately 1304.327 units.
+
+Overall, the forecasting performance of this model seems to have moderate accuracy. The MAE, RMSE, and MAPE values suggest that the forecasts have a reasonable level of accuracy, although there is room for improvement. Additionally, the negative bias indicates a tendency for the forecasts to be consistently lower than the actual values.
+
+Notably, the significant jump in unemployment observed in 1975, the highest value throughout the observation period, indicates an extraordinary event that the model could not consider. This highlights the challenge of forecasting, which assumes that future patterns and behaviours will resemble those observed in the past.
+
+## Exponential smoothing modelling, analysis and forecasting
+
+To manually fit a model from the exponential smoothing family, tailored for time series data exhibiting trend and seasonality, the Holt-Winters method is a suitable choice. This method extends simple exponential smoothing to accommodate data with both trend and seasonality. We will fit the Holt-Winters model incorporating multiplicative error, additive trend with damping, and multiplicative seasonality components (ETS(M,Ad,M)) (R code \@ref(appendix-16)).
+
+```{r echo=FALSE}
+# Fit the Holt-Winters model with multiplicative trend and seasonality
+hw_model <- ets(training_data, model="MAM", damped=TRUE)
+cat("Table 7: Exponential Smoothing model with the Holt-Winters method summary")
+summary(hw_model)
+```
+
+A sigma value of 0.0855 suggests that the model captures a significant portion of the variability in the training data. Additionally, the relatively low values of AIC, AICc, and BIC are positive indicators of model fit.
+
+```{r f11, fig.cap="Exponential smoothing (ETS (M, Ad, M)) model: quarterly unemployment in Canada in 1962-1973 vs. fitted values", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(hw_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+    ggtitle("ETS (M, Ad, M) model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+Upon examination of residuals (R code \@ref(appendix-17)), they appear to be normally distributed without any discernible patterns.
+
+```{r f12, fig.cap="Exponential smoothing (ETS (M, Ad, M)) model: training residuals", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Plot histogram of residuals
+checkresiduals(hw_model)
+```
+
+It is supported by the Shapiro-Wilk test results, which do not provide sufficient evidence to reject the assumption of normality (R code \@ref(appendix-18)).
+
+```{r echo=FALSE}
+# Test for normality
+cat("Table 8: Shapiro-Wilk test of the exponential smoothing model's training residuals")
+shapiro.test(hw_model$residuals)
+```
+
+However, further evaluation of the model on future data is warranted to provide a comprehensive assessment.
+
+When evaluating the forecasting accuracy of the exponential smoothing model with the Holt-Winters method against future data in Figure \@ref(fig:f13) (R code \@ref(appendix-19)), we observe that while the future data aligns with the 95% confidence interval for the first four quarters, it surpasses the forecasted range thereafter.
+
+```{r f13, fig.cap="Exponential smoothing (ETS (M, Ad, M)) model's eight-quarter forecast of unemployment in Canada", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+
+# Forecast
+forecast_hw <- forecast(hw_model, h = 8, PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(hw_model, level = c(0.95)), series = "95% CI") +
+      autolayer(forecast(hw_model, level = c(0.8)), series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("ETS(M,Ad,M) model: forecasts of unemployment in Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data"))
+
+```
+
+This discrepancy makes it challenging to directly assess the model’s forecasting performance solely based on this plot. Therefore, we conduct residual analysis in Figure \@ref(fig:f14) to obtain a more objective evaluation and examine various evaluation metrics such as MAE, RMSE, and MAPE (R code \@ref(appendix-20)).
+
+```{r f14, fig.cap="Exponential smoothing (ETS (M, Ad, M)) model: out-of-sample residuals", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Calculate residuals
+residuals_hw <- forecast_hw$mean - test_data
+checkresiduals(residuals_hw)
+
+```
+
+The Ljung-Box Test Statistic’s p-value (0.1802) is greater than the commonly used significance level of 0.05, suggesting no significant autocorrelation in the residuals at the specified lags.
+
+However, the model exhibits poor performance compared to the future data (R code \@ref(appendix-21)).
+
+```{r echo=FALSE}
+# Calculate evaluation metrics
+mae_hw <- mean(abs(residuals_hw))
+rmse_hw <- sqrt(mean(residuals_hw^2))
+mape_hw <- mean(abs(residuals_hw / test_data)) * 100
+bias_hw <- mean(residuals_hw)
+
+# Print evaluation metrics
+#cat("Mean Absolute Error (MAE):", mae_hw, "\n")
+#cat("Root Mean Squared Error (RMSE):", rmse_hw, "\n")
+#cat("Mean Absolute Percentage Error (MAPE):", mape_hw, "%\n")
+#cat("Forecast Bias:", bias_hw, "\n")
+
+# Create a data frame for the metrics
+evaluation_hw <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", "Forecast Bias"),
+  Value = c(mae_hw, rmse_hw, mape_hw, bias_hw)
+)
+
+# Remove column names
+colnames(evaluation_hw) <- NULL
+
+# Print the data frame
+cat("Table 9: Error measures evaluating ETS(M,Ad,M) model's out-of-sample accuracy")
+print(evaluation_hw, row.names = FALSE, col.names = FALSE)
+
+```
+
+High MAE and RMSE values indicate significant deviations from actual values on average, while a MAPE of 30.0379% suggests considerable discrepancies relative to actual values. A lower MAPE is desired for more accurate forecasts. Furthermore, the negative bias indicates a systematic underestimation of actual values.
+
+In conclusion, the model’s performance is subpar, characterised by high errors, substantial deviations from actual future values, and systematic bias. Further refinement or alternative modelling approaches may be necessary to enhance forecasting accuracy.
+
+## ARIMA modelling, analysis and forecasting
+
+As established earlier in this report, the historical time series data exhibits trend and seasonality components, rendering it non-stationary. This is confirmed by the Autocorrelation Function (ACF) plot in Figure \@ref(fig:f15) (R code \@ref(appendix-22)), which displays multiple spikes outside the confidence intervals, with a notably strong and significantly positive first lag.
+
+```{r f15, fig.cap="Autocorrelation Function (ACF) plot of the quarterly unemployment in Canada in 1962-1973", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+acf(training_data, main = "ACF: unemployment in Canada in 1962-1973")
+```
+
+To address non-stationarity, differencing can stabilise the time series' mean and eliminate trends and seasonality. Augmented Dickey-Fuller (ADF) and Kwiatkowski-Phillips-Schmidt-Shin (KPSS) tests are conducted to determine the necessity of differencing objectively (R code \@ref(appendix-23)).
+
+```{r echo=FALSE, warning=FALSE}
+library(tseries)
+cat("Table 10: Augmented Dickey-Fuller (ADF) test of the training data")
+adf.test(training_data, alternative = "stationary")
+```
+
+The ADF test yields a high p-value (0.5982), failing to reject the null hypothesis of non-stationarity, while the KPSS test, with a p-value of 0.01, rejects the null hypothesis of stationarity around a level:
+
+```{r echo=FALSE, warning=FALSE}
+library(urca)
+cat("Table 11: Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test of the training data")
+kpss.test(training_data)
+```
+
+As the next step, we can use `ndiffs()` and `nsdiffs()` functions to determine the appropriate number of first and seasonal differencing for the training data (R code \@ref(appendix-24)):
+
+```{r echo=FALSE, warning=FALSE}
+cat("Number of first differecings: ", ndiffs(training_data))
+
+cat("Number of seasonal differecings: ", nsdiffs(training_data))
+```
+
+A Box-Cox transformation will not be performed due to the absence of evidence indicating variance changes.
+
+Subsequently, the first and seasonal differencings are applied to the historical data, followed by an examination of the ACF/PACF plots in Figure \@ref(fig:f16) (R code \@ref(appendix-25)).
+
+```{r f16, fig.cap="Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF) plots of the quarterly unemployment in Canada in 1962-1973", fig.pos = 'H', echo=FALSE, warning=FALSE, fig.width=6, fig.height=3.5}
+training_diff <- diff(diff(training_data, differences = 1), lag = 4)
+
+# Set up a multi-panel plot with 1 row and 2 columns
+par(mfrow = c(1, 2))
+
+# Plot ACF for differenced data
+acf(training_diff, main = "Differenced unemployment")
+
+# Plot PACF for differenced data
+pacf(training_diff, main = "")
+```
+
+The absence of significant spikes in the ACF plot beyond lag 0 suggests no need for autoregressive (AR) terms, while the significant spike at lag 1 in the PACF plot suggests a potential need for a Moving Average (MA) component.
+
+The efficacy of differencing is further confirmed by plotting the differenced historical data in Figure \@ref(fig:f17) together with performing the ADF test in Table 12, indicating stationarity of the differenced series, while the KPSS test in Table 13 fails to reject the null hypothesis of stationarity (R codes \@ref(appendix-26)).
+
+```{r f17, fig.cap="Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF) plots of the differenced training data", fig.pos = 'H', echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=3.5}
+# Plot Differenced Data
+autoplot(training_diff)+
+ ggtitle("Differenced unemployment in Canada in 1962-1973") +
+    xlab("Year")+
+    ylab("Differenced unemployment")+
+  guides(color = guide_legend(title = "")) 
+```
+
+```{r echo=FALSE, warning=FALSE}
+cat("Table 12: Augmented Dickey-Fuller (ADF) test of the differenced data")
+adf.test(training_diff, alternative = "stationary")
+```
+
+```{r echo=FALSE, warning=FALSE}
+cat("Table 13: Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test of the differenced data")
+kpss.test(training_diff)
+```
+
+With stationarity achieved, modeling using ARIMA (AutoRegressive Integrated Moving Average) methods becomes feasible. Based on observations, an initial ARIMA model of ARIMA(0,1,0)(1,1,0)[4] is proposed, accounting for differencing and seasonality (R code \@ref(appendix-27)).
+
+```{r echo=FALSE, warning=FALSE}
+cat("Table 14: ARIMA(0,1,0)(1,1,0)[4] model summary")
+arima_model <- Arima(training_data, order = c(0,1,0), seasonal = c(1,1,0))
+summary(arima_model)
+```
+
+These statistical measures provide a way to compare the goodness of fit among different models. In this case, the log-likelihood is -307.65, and the AIC, AICc, and BIC are 619.3, 619.6, and 622.82, respectively. Lower values of AIC, AICc, and BIC indicate a better fit, suggesting that the model is relatively good compared to alternative models.
+
+The seasonal autoregressive term (sar1) coefficient is -0.2806, indicating a negative relationship between the observations and their seasonal lagged values. This coefficient's standard error (s.e.) is 0.1504, suggesting a relatively precise estimate.
+
+The MPE (Mean Percentage Error) is 0.2442629%, which measures the average relative error. It’s close to 0, indicating that, on average, the model’s forecasts are accurate.
+
+```{r f18, fig.cap="ARIMA(0,1,0)(1,1,0)[4] model: quarterly unemployment in Canada in 1962-1973 vs fitted values", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(arima_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+ ggtitle("ARIMA(0,1,0)(1,1,0)[4] model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+Residual analysis in Figure \@ref(fig:f19) (R code \@ref(appendix-28)) reveals normally distributed residuals with no significant autocorrelation, further affirming the adequacy of the ARIMA model.
+
+```{r f19, fig.cap="ARIMA(0,1,0)(1,1,0)[4] model: training residuals", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Plot histogram of residuals
+checkresiduals(arima_model)
+```
+
+The Ljung-Box test result, with a p-value of 0.5884, indicates that the model adequately captures the temporal dependence structure present in the historical data.
+
+The Shapiro-Wilk test (R code \@ref(appendix-29)), which assesses the normality of the residuals from the ARIMA model, does not provide sufficient evidence to reject the null hypothesis of normality. This suggests that the residuals from the ARIMA model are approximately normally distributed.
+
+```{r echo=FALSE}
+# Test for normality
+cat("Table 15: Shapiro-Wilk test of the ARIMA model’s training residuals")
+shapiro.test(arima_model$residuals)
+```
+
+Upon forecasting performance evaluation against future data, the ARIMA model exhibits reasonably low errors and bias, indicating satisfactory performance, albeit challenges in predicting extraordinary spikes in future data in Figure \@ref(fig:f20) (R code \@ref(appendix-30)).
+
+```{r f20, fig.cap="ARIMA(0,1,0)(1,1,0)[4] model's eight-quarter forecast of unemployment in Canada", fig.pos = 'H', echo=FALSE, fig.width=6.5, fig.height=3.5}
+# Forecast
+forecast_arima <- forecast(arima_model, h = 8, PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(arima_model, level = c(0.95)), series = "95% CI") +
+      autolayer(forecast(arima_model, level = c(0.8)), series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("ARIMA(0,1,0)(1,1,0)[4] model: forecasts of unemployment in Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data"))
+
+```
+
+The Ljung-Box Test Statistic’s p-value (0.09731) rejects the null hypothesis of no autocorrelation in the residuals, suggesting no significant autocorrelation present in the residuals at the specified lags (R code \@ref(appendix-31)).
+
+```{r f21, fig.cap="ARIMA(0,1,0)(1,1,0)[4] model: out-of-sample residuals", fig.pos = 'H', echo=FALSE, fig.width=6, fig.height=3.5}
+# Calculate residuals
+residuals_arima <- forecast_arima$mean - test_data
+
+checkresiduals(residuals_arima)
+
+```
+
+The metrics from Table 16 suggest that the model’s forecasts have relatively low errors and bias, indicating reasonably good performance, considering the future data had extraordinary spikes (R code \@ref(appendix-32)).
+
+```{r echo=FALSE}
+# Calculate evaluation metrics
+mae_arima <- mean(abs(residuals_arima))
+rmse_arima <- sqrt(mean(residuals_arima^2))
+mape_arima <- mean(abs(residuals_arima / test_data)) * 100
+bias_arima <- mean(residuals_arima)
+
+# Print evaluation metrics
+#cat("Mean Absolute Error (MAE):", mae_arima, "\n")
+#cat("Root Mean Squared Error (RMSE):", rmse_arima, "\n")
+#cat("Mean Absolute Percentage Error (MAPE):", mape_arima, "%\n")
+#cat("Forecast Bias:", bias_arima, "\n")
+
+# Create a data frame for the metrics
+evaluation_arima <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", "Forecast Bias"),
+  Value = c(mae_arima, rmse_arima, mape_arima, bias_arima)
+)
+
+# Remove column names
+colnames(evaluation_arima) <- NULL
+
+# Print the data frame
+cat("Table 16: Error measures evaluating the ARIMA model’s out-of-sample accuracy")
+print(evaluation_arima, row.names = FALSE, col.names = FALSE)
+
+```
+
+Comparative analysis of Mean Absolute Percentage Errors (MAPEs) among the three forecasting models helps identify the most suitable model (R code \@ref(appendix-33)). It is a reasonable approach, especially if the models have different structures or complexities, such as the regression model, which includes polynomial terms. MAPE is a relative error metric that accounts for the magnitude of the forecasted values, which can be helpful when comparing models with different scales:
+
+```{r echo=FALSE}
+# Store evaluation metrics for each model in a data frame
+evaluation_metrics <- data.frame(
+  Model = c("ARIMA", "Exponential Smoothing", "Regression"),
+  MAE = c(mae_arima, mae_hw, mae_regression),
+  RMSE = c(rmse_arima, rmse_hw, rmse_regression),
+  MAPE = c(mape_arima, mape_hw, mape_regression),
+  Bias = c(bias_arima, bias_hw, bias_regression)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 17: Error measures evaluating out-of-sample accuracy of the three models")
+print(evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for the evaluation metrics
+best_model <- evaluation_metrics[which.min(evaluation_metrics$MAPE), ]
+
+# Print the best model
+cat("Best Model based on MAPE:", best_model$Model, "\n")
+```
+
+However, it’s crucial to acknowledge that the three forecasting models struggled to forecast unemployment in Canada after 1975 due to the complex and multifaceted nature of the economic conditions during that period. The global economic recession, triggered by the oil crisis of 1973-1974, resulted in stagnant growth and rising unemployment rates worldwide (Bank of Canada, 1999). Industrial restructuring, trade disruptions, and technological advancements further exacerbated job losses across various sectors. Government policies aimed at curbing inflation may have inadvertently worsened unemployment levels. The interplay of these factors created a highly volatile and uncertain economic environment, making it challenging for forecasting models to capture and predict unemployment dynamics during that time accurately.
+
+# Batch Forecasting 
+
+## Exploratory analysis
+
+In this section of the report, we undertake batch forecasting on a subset of quarterly time series data from the M3 competition, specifically focusing on IDs 1001 to 1100. It comprises historical data utilised for fitting automatic forecasting models and future data used to evaluate the forecasting performance of the fitted models. Each time series represents a historical record of a specific variable, such as sales numbers, stock prices, or production levels. For instance, the time series with ID 1001 tracks the volume indices of exports (both goods and services) from Japan (R code \@ref(appendix-34)).
+
+```{r echo=FALSE}
+cat("Table 18: M3 competition series ID 1001")
+M3[[1001]]
+```
+
+The primary objective of this section of the report is to select, automatically fit, and evaluate three distinct statistical models for forecasting quarterly time series of IDs from 1001 to 1100 from the M3 competition data set. 
+
+## Error measures selection
+
+Following the generation of forecasts for the next eight quarters, we will assess their accuracy using two appropriate error measures:
+
+**Mean Absolute Percentage Error (MAPE)** measures the percentage difference between the actual future and forecasted values, offering a relative measure of forecast accuracy. MAPE represents the average percentage error of the forecast relative to the future data. Its simplicity makes it easy to understand and communicate to stakeholders.
+
+**Symmetric Mean Absolute Percentage Error (sMAPE)** measures the percentage difference between future and forecasted values in a symmetric manner, meaning it does not favour overestimation or underestimation. It calculates the absolute percentage error for each observation and then averages these errors across all observations. sMAPE is scale-independent, allowing for comparison of forecast accuracy across different data sets and variables. Its symmetry treats positive and negative errors equally, which can be advantageous in various forecasting scenarios.
+
+While MAPE offers simplicity and straightforwardness, sMAPE provides additional robustness and symmetry, rendering it suitable for a broader range of forecasting scenarios. Both measures are valuable for comparing forecast accuracy across different time series with varying scales, aiding in comprehensive evaluation and decision-making processes.
+
+## Benchmarking
+
+In addition to evaluating each model’s accuracy using MAPE and sMAPE, we will compare their performance against two benchmark methods:
+
+**Theta model** considers both the level and trend of the time series data. Theta forecasting provides a straightforward baseline for comparison, capturing basic trends in the data without incorporating more complex patterns. One advantage of Theta forecasting is its simplicity and ease of implementation, making it suitable for quick assessments of forecasting performance. According to Makridakis and Hibon (2000), despite its apparent simplicity and lack of reliance on robust statistical foundations, the Theta method exhibits remarkable accuracy across various series types, forecasting timeframes, and evaluation metrics. However, it may overlook more subtle patterns or seasonality in the data, limiting its accuracy compared to more sophisticated models.
+
+**Damped Exponential Smoothing** is a variation of exponential smoothing that diminishes the influence of past observations as the forecast horizon extends. This method accounts for the decreasing relevance of historical data as time progresses, offering a more nuanced approach than the theta model's simplicity. Damped exponential smoothing is advantageous as it adapts to changing data patterns over time, providing smoother and often more accurate forecasts. However, it may struggle with abrupt changes or outliers in the data, potentially leading to inaccuracies in forecasting during periods of volatility.
+
+By comparing the performance of the models against these benchmark methods, we can gain insights into their relative effectiveness and assess their ability to outperform basic forecasting approaches. This comparative analysis will aid in identifying the strengths and weaknesses of each model, guiding decision-making processes and informing future forecasting strategies.
+
+## Automatic ARIMA model
+
+The `auto.arima()` function in R automatically selects the optimal ARIMA parameters for each time series data (IDs 1001 to 1100) from the M3 competition data set based on the corrected Akaike Information Criterion (AICc). However, it may not effectively capture complex seasonal patterns or structural changes in the data, leading to suboptimal forecasts in certain cases. The automatic ARIMA model may also struggle with noisy or irregular data, requiring additional preprocessing or model refinement to improve forecasting accuracy. Appendix \@ref(appendix-35) contains a comprehensive list of automatically fitted ARIMA models for each series and their respective forecasted values.
+
+```{r echo=FALSE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for ARIMA and benchmarks
+mape_arima <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_arima <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit ARIMA model
+  arima_fit <- auto.arima(train_data, ic = criterion)
+  # Print summary of the fitted ARIMA model
+  #cat("Summary for ARIMA model of Time Series ID:", s, "\n")
+  #print(summary(arima_fit))
+  #cat("\n")  # Add a newline after each summary
+
+  arima_fcst <- forecast(arima_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(arima_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for ARIMA
+  mape_arima[s - ts_start + 1] <- 100 * mean(abs(test_data - arima_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for ARIMA
+  smape_arima[s - ts_start + 1] <- 200 * mean(abs(test_data - arima_fcst) / (abs(test_data) + abs(arima_fcst)), na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data, h = h)
+  theta_fcst <- forecast(theta_fit)$mean
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / (abs(test_data) + abs(theta_fcst)), na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / (abs(test_data) + abs(damped_fcst)), na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+
+```
+
+After computing the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the ARIMA models, we compare its performance with the Theta and Damped Exponential Smoothing models, which serve as benchmarks (R code \@ref(appendix-36)). Individual error values are calculated for each method across multiple time series.
+
+```{r echo=FALSE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_arima <- mean(mape_arima, na.rm = TRUE)
+avg_smape_arima <- mean(smape_arima, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+arima_batch_evaluation_metrics <- data.frame(
+  Model = c("ARIMA", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_arima, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_arima, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 19: Error measures evaluating automatic ARIMA model's out-of-sample accuracy")
+print(arima_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+arima_batch_best_model_mape <- arima_batch_evaluation_metrics[which.min(arima_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+arima_batch_best_model_smape <- arima_batch_evaluation_metrics[which.min(arima_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", arima_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", arima_batch_best_model_smape$Model, "\n")
+
+```
+
+The ARIMA model’s forecasts have an absolute percentage error of approximately 5.68%, with a symmetric perspective suggesting a slightly lower error of around 5.37%.
+
+The Theta forecast model’s predictions demonstrate a lower absolute percentage error than the ARIMA model while showing a slightly lower error from a symmetric perspective.
+
+Conversely, the Damped Exponential Smoothing model displays the lowest average MAPE of around 4.67% and the lowest average sMAPE of about 4.54%. These results indicate that the Damped Exponential Smoothing model offers the most accurate forecasts among the three methods, with both MAPE and sMAPE indicating lower error rates than the ARIMA and Theta forecast models.
+
+## Automatic Error-Trend-Seasonality model (ETS)
+
+The `ets()` function in R automatically selects the optimal ETS model (Error, Trend, Seasonality) based on each series' data characteristics, such as the presence of trend and seasonality. The fitted ETS model contains information about the estimated parameters, including the level, trend, and seasonal components for each series and any additional settings or options specified during the fitting process. However, it may be computationally intensive for large-scale forecasting tasks and could produce suboptimal results if the underlying data contains irregular patterns or outliers. Appendix \@ref(appendix-37) contains a comprehensive list of automatically fitted ETS models for each series and their respective forecasted values.
+
+```{r echo=FALSE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for ETS and benchmarks
+mape_ets <- numeric(num_ts)
+smape_ets <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit ETS model
+  ets_fit <- ets(train_data)
+  # Print summary of the fitted ETS model
+  #cat("Summary for ETS model of Time Series ID:", s, "\n")
+  #print(summary(ets_fit))
+  #cat("\n")  # Add a newline after each summary
+  ets_fcst <- forecast(ets_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(ets_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for ETS
+  mape_ets[s - ts_start + 1] <- 100 * mean(abs(test_data - ets_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for ETS
+  smape_ets[s - ts_start + 1] <- 200 * mean(abs(test_data - ets_fcst) / (abs(test_data) + abs(ets_fcst)), na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data, h = h)
+  theta_fcst <- forecast(theta_fit)$mean
+
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / (abs(test_data) + abs(theta_fcst)), na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / (abs(test_data) + abs(damped_fcst)), na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+
+```
+
+Similarly to the auto ARIMA model, we calculate the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the ETS forecasting models and compare them with the metrics for Theta and Damped Exponential Smoothing models as benchmarks (R code \@ref(appendix-38)).
+
+```{r echo=FALSE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_ets <- mean(mape_ets, na.rm = TRUE)
+avg_smape_ets <- mean(smape_ets, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+ets_batch_evaluation_metrics <- data.frame(
+  Model = c("ETS", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_ets, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_ets, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 20: Error measures evaluating automatic ETS model's out-of-sample accuracy")
+print(ets_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+ets_batch_best_model_mape <- ets_batch_evaluation_metrics[which.min(ets_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+ets_batch_best_model_smape <- ets_batch_evaluation_metrics[which.min(ets_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", ets_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", ets_batch_best_model_smape$Model, "\n")
+
+```
+
+The ETS model exhibits a MAPE of 5.14%, indicating that, on average, its forecasts have a percentage error of approximately 5.14% compared to the future values. Additionally, it has an sMAPE of 4.94%, suggesting that, on average, its forecasts have a symmetric percentage error of approximately 4.94% compared to the future data.
+
+Although the Damped Exponential Smoothing model slightly outperforms the ETS model, the latter still exhibits superior accuracy compared to the Theta model. Therefore, the ETS model remains a reliable choice for forecasting, especially considering its competitive performance. Factors such as computational simplicity or model interpretability may further support selecting the ETS model for forecasting tasks.
+
+## Automatic Trigonometric Seasonal Box-Cox Transformation, ARMA errors, Trend, and Seasonal components model (TBATS)
+
+The TBATS model is renowned for its capability to handle multiple seasonalities, trends, and complex patterns in time series data. It is particularly useful for data sets with intricate seasonal patterns and irregular trends. It is preferred for automatic forecasting tasks where data may exhibit multiple seasonalities and nonlinear patterns. However, it may suffer from computational intensity, especially with large data sets, and might require tuning parameters for optimal performance in certain cases.
+
+TBATS decomposes the time series into components, including multiple seasonalities and trends, utilising trigonometric functions and Box-Cox transformations. Subsequently, it fits an ARMA model to the residuals to capture any remaining temporal dependencies, providing forecasts based on the estimated components and model parameters. Appendix \@ref(appendix-39) contains a comprehensive list of automatically fitted TBATS models for each series and their respective forecasted values.
+
+```{r echo=FALSE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for TBATS and benchmarks
+mape_tbats <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_tbats <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit TBATS model
+  tbats_fit <- tbats(train_data)
+  # Print summary of the fitted TBATS model
+  #cat("Summary for TBATS model of Time Series ID:", s, "\n")
+  #print(summary(tbats_fit))
+  #cat("\n")  # Add a newline after each summary
+  tbats_fcst <- forecast(tbats_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(tbats_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for TBATS
+  mape_tbats[s - ts_start + 1] <- 100 * mean(abs(test_data - tbats_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for TBATS
+  smape_tbats[s - ts_start + 1] <- 200 * mean(abs(test_data - tbats_fcst) / (abs(test_data) + abs(tbats_fcst)), na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data)
+  # Print summary of the fitted Theta model
+  #cat("Summary for Theta model of Time Series ID:", s, "\n")
+  #print(summary(theta_fit))
+  #cat("\n")  # Add a newline after each summary
+  theta_fcst <- forecast(theta_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(theta_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / (abs(test_data) + abs(theta_fcst)), na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / (abs(test_data) + abs(damped_fcst)), na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+```
+
+Similar to the auto ARIMA and ETS models, we compute the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the TBATS forecasting models and compare them with the metrics for Theta and Damped Exponential Smoothing models as benchmarks (R code \@ref(appendix-40)).
+
+```{r echo=FALSE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_tbats <- mean(mape_tbats, na.rm = TRUE)
+avg_smape_tbats <- mean(smape_tbats, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+tbats_batch_evaluation_metrics <- data.frame(
+  Model = c("TBATS", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_tbats, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_tbats, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 21: Error measures evaluating automatic TBATS model's out-of-sample accuracy")
+print(tbats_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+tbats_batch_best_model_mape <- tbats_batch_evaluation_metrics[which.min(tbats_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+tbats_batch_best_model_smape <- tbats_batch_evaluation_metrics[which.min(tbats_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", tbats_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", tbats_batch_best_model_smape$Model, "\n")
+
+```
+
+The TBATS model shows an average MAPE of about 6.16% and an sMAPE of around 5.83%. However, the Damped Exponential Smoothing and Theta models outperform it, with average MAPEs of 4.67% and 5.54% and sMAPEs of 4.54% and 5.29%, respectively.
+
+To summarise the above, we output the average MAPE and sMAPE values for the automatic ARIMA, ETS, and TBATS models alongside their benchmark models (Theta and Damped Exponential Smoothing) to determine the best-performing model. The results are sorted in ascending order based on their combined performance in both MAPE and sMAPE (R code \@ref(appendix-41)).
+
+```{r echo=FALSE}
+# Store evaluation metrics for each method in a data frame
+evaluation_metrics_summary <- data.frame(
+  Method = c("ARIMA", "ETS", "TBATS", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_arima, avg_mape_ets, avg_mape_tbats, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_arima, avg_smape_ets, avg_smape_tbats, avg_smape_theta, avg_smape_damped)
+)
+
+# Sort the data frame in ascending order based on both MAPE and sMAPE values
+sorted_metrics <- evaluation_metrics_summary[order(evaluation_metrics_summary$MAPE, evaluation_metrics_summary$sMAPE), ]
+
+# Print the sorted data frame
+cat("Table 22: Error measures evaluating out-of-sample accuracy of the automatic models")
+print(sorted_metrics, row.names = FALSE)
+
+# Identify the row corresponding to the best model
+best_model_row <- sorted_metrics[1, ]
+
+# Print the best model with highlighting
+cat("\nBest model based on MAPE and sMAPE:\n")
+print(best_model_row, row.names = FALSE)
+```
+
+The analysis reveals that the Damped Exponential Smoothing method emerges as the best model, boasting the lowest MAPE and sMAPE values of 4.67% and 4.54%, respectively. This indicates that, on average, this method provides the most accurate forecasts compared to the others evaluated.
+
+Conversely, the TBATS method exhibits the highest MAPE (6.16%) and sMAPE (5.83%) values, indicating the least accurate forecasting performance among all the evaluated methods. The TBATS model might perform worse due to factors such as potential overfitting, violation of model assumptions, and limitations in historical data. These issues can collectively hinder the model’s accuracy and effectiveness in forecasting.
+
+# Conclusions 
+
+This report has provided valuable insights into the performance and effectiveness of various forecasting methods for quarterly time series data.
+
+Although the 1975 recession significantly impacted forecast accuracy, and the manual models struggled to anticipate the abrupt shifts in unemployment rates during this economic turmoil, the forecasts before the recession yielded promising results, with the regression model exhibiting superior accuracy. 
+
+The competitive edge of the Damped Exponential Smoothing model over automatic ARIMA, ETS, and TBATS models for batch forecasting can be attributed to the factor highlighted by Koning et al. (2005) that the complexity of forecasting methods does not always correlate with forecast accuracy.
+
+It is crucial to acknowledge the inherent limitations in forecasting, including the reliance on historical data and assumptions regarding stationarity and underlying patterns. Moving forward, continued research and experimentation are essential to refining forecasting methodologies and addressing the evolving challenges posed by dynamic and uncertain environments.
+
+By leveraging the insights from this study, organisations can enhance their forecasting capabilities and make informed decisions to navigate the complexities of today’s business landscape effectively. By strategically utilising forecasting techniques, businesses can optimise resource allocation, minimise risks, and seize opportunities for growth and innovation.
+
+***
+
+# References 
+
+Bank of Canada (1999) *Canadian economic performance at the end of the twentieth century.* Available at: https://www.bankofcanada.ca/1999/06/canadian-economic-performance-end-twentieth-century/ (Accessed: 29 March 2024).
+
+Koning, A.J., Franses, P.H., Hibon, M. and Stekler, H.O. (2005) 'The M3 competition: Statistical tests of the results', *International Journal of Forecasting*, 21(3), pp.397–409. Available at: https://doi.org/10.1016/j.ijforecast.2004.10.003.
+
+Makridakis, S. and Hibon, M. (2000) 'The M3-Competition: results, conclusions and implications', *International Journal of Forecasting*, 16(4), pp.451–476. Available at: https://doi.org/10.1016/s0169-2070(00)00057-1.
+
+# Appendices 
+
+## Code displaying series ID 1394 of the M3 competition data set  {#appendix-1}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+frequency <- 4 ## for quarterly time series
+data <- M3[[1394]]
+data <- subset(data, frequency == frequency)
+cat("Table 1: M3 competition series ID 1394")
+data
+```
+
+## Codes producing a time series plot of the historical data (Figure \@ref(fig:f1)) and its summary {#appendix-2}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Assign the historical data to a variable for training the model
+training_data <- data$x
+# Assign the future data points for testing the model's predictions
+test_data <- data$xx
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Generate a time series plot of the training data
+autoplot(training_data, 
+         type = "l",        
+         xlab = "Year",      
+         ylab = "Unemployment",  
+         main = "Quarterly unemployment in Canada in 1962-1973 
+         (Series ID 1394)") 
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 2: Summary of the quarterly unemployment in Canada in 1962-1973")
+summary(training_data)
+```
+
+## Codes producing the seasonality plot (Figure \@ref(fig:f2)) and the seasonal subseries plot of the training data (Figure \@ref(fig:f3)) {#appendix-3}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+ggseasonplot(training_data, year.labels=TRUE, year.labels.left=TRUE) +
+  ylab("Unemployment") +
+  ggtitle("Seasonality: quarterly unemployment in Canada")
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+ggsubseriesplot(training_data) +
+  ylab("Unemployment") +
+  ggtitle("Seasonal subseries: quarterly unemployment in Canada")
+```
+
+## Code producing the lagged scatter plots of the quarterly Canadian unemployment in 1962-1973 (Figure \@ref(fig:f4)) {#appendix-4}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+gglagplot(training_data) +
+  #ggtitle("Lagged scatter plot: quarterly unemployment") +
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Code plotting the Autocorrelation Function (ACF) of the quarterly unemployment in Canada in 1962-1973 in Figure \@ref(fig:f5) {#appendix-5}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+ggAcf(training_data, main = "ACF: unemployment in Canada in 1962-1973")
+```
+
+## Code plotting multiplicative decomposition of the quarterly unemployment in Canada in 1962-1973 in Figure \@ref(fig:f6) {#appendix-6}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+training_decomposed <- decompose(training_data, type = "multiplicative")
+autoplot(training_decomposed) + xlab("Year")
+```
+
+## Code producing box plots of unemployment in Canada in 1962-1973 per quarter in Figure \@ref(fig:f7) to detect outliers {#appendix-7}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Ensure the time series has the correct frequency set
+training_ts <- ts(training_data, frequency = 4)
+
+# Convert the time series to a data frame for plotting
+# Create a factor indicating the quarter
+df <- data.frame(
+  Value = as.numeric(training_ts),
+  Quarter = factor(rep(1:4, length.out = length(training_ts)))
+)
+
+ggplot(df, aes(x = Quarter, y = Value)) +
+  geom_boxplot() +
+  labs(title = "Distribution of unemployment in Canada in 1962-1973", 
+       x = "Quarter", y = "Unemployment")
+```
+
+## Code fitting a polynomial regression model using the `tslm()` function {#appendix-8}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Regression Model
+regression_model <- tslm(training_data ~ trend +
+                             I(trend^2) + I(trend^3) + season)
+cat("Table 3: Regression model summary")
+summary(regression_model)
+```
+
+## Code plotting the training data and values fitted by the regression model in Figure \@ref(fig:f8) {#appendix-9}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(regression_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+  ggtitle("Regression model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+## Code running the Shapiro-Wilk test checking the assumption of normality of the regression model's training residuals {#appendix-10}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 4: Shapiro-Wilk test of the regression model's training residuals")
+shapiro.test(regression_model$residuals)
+```
+
+## Code plotting training residuals from the regression model in Figure \@ref(fig:f9) {#appendix-11}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+checkresiduals(regression_model)
+```
+
+## Code running the Ljung-Box test detecting autocorrelation in the training residuals at lag 1 {#appendix-12}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Perform Ljung-Box test on the residuals
+ljung_box_test <- Box.test(regression_model$residuals, lag = 1, 
+                           type = "Ljung-Box")
+
+# Print the results
+cat("Table 5: Box-Ljung test of the regression model's training residuals")
+ljung_box_test
+```
+
+## Code plotting future (out-of-sample) data and values forecasted by the regression model in Figure \@ref(fig:f10) {#appendix-13}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+
+# Forecast
+forecast_regression <- forecast(regression_model, h = 8, 
+                                PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(regression_model, level = c(0.95)), 
+            series = "95% CI") +
+      autolayer(forecast(regression_model, level = c(0.8)), 
+                series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", 
+            series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("Regression model: forecasts of unemployment in Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data")) 
+
+```
+
+## Code plotting out-of-sample residuals from the regression model in Figure \@ref(fig:f010) {#appendix-14} 
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+residuals_regression <- forecast_regression$mean - test_data
+checkresiduals(residuals_regression)
+```
+
+## Code calculating measures, such as MAE, RMSE, and MAPE, to evaluate the accuracy of the regression model to forecast future data {#appendix-15} 
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate evaluation metrics
+mae_regression <- mean(abs(residuals_regression))
+rmse_regression <- sqrt(mean(residuals_regression^2))
+mape_regression <- mean(abs(residuals_regression / test_data)) * 100
+bias_regression <- mean(residuals_regression)
+
+# Create a data frame for the metrics
+evaluation_regression <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", 
+             "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", 
+             "Forecast Bias"),
+  Value = c(mae_regression, 
+            rmse_regression, 
+            mape_regression, 
+            bias_regression)
+)
+
+# Remove column names
+colnames(evaluation_regression) <- NULL
+
+# Print the data frame
+cat("Table 6: Error measures evaluating the regression model's 
+    out-of-sample accuracy")
+print(evaluation_regression, row.names = FALSE, col.names = FALSE)
+```
+
+## Code fitting and plotting in Figure \@ref(fig:f11) the exponential smoothing model with the Holt-Winters method, incorporating multiplicative error, additive trend with damping, and multiplicative seasonality components (ETS(M,Ad,M)) {#appendix-16}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Fit the Holt-Winters model with multiplicative trend and seasonality
+hw_model <- ets(training_data, model="MAM", damped=TRUE)
+cat("Table 7: Exponential Smoothing model with 
+    the Holt-Winters method summary")
+summary(hw_model)
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(hw_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+    ggtitle("ETS (M, Ad, M) model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+## Code plotting training residuals of the exponential smoothing (ETS (M, Ad, M)) model in Figure \@ref(fig:f12) {#appendix-17}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+checkresiduals(hw_model)
+```
+
+## Code running the Shapiro-Wilk test of the exponential smoothing model's training residuals {#appendix-18}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Test for normality
+cat("Table 8: Shapiro-Wilk test of the exponential 
+    smoothing model's training residuals")
+shapiro.test(hw_model$residuals)
+```
+
+## Code plotting the forecast of the exponential smoothing model with the Holt-Winters method against future data in Figure \@ref(fig:f13) {#appendix-19}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+
+# Forecast
+forecast_hw <- forecast(hw_model, h = 8, 
+                        PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(hw_model, level = c(0.95)), 
+            series = "95% CI") +
+      autolayer(forecast(hw_model, level = c(0.8)), 
+                series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", 
+            series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("ETS(M,Ad,M) model: forecasts of unemployment in Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data"))
+
+```
+
+## Code plotting out-of-sample residuals of the exponential smoothing (ETS (M, Ad, M)) model in Figure \@ref(fig:f14) {#appendix-20}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate residuals
+residuals_hw <- forecast_hw$mean - test_data
+checkresiduals(residuals_hw)
+
+```
+
+## Code calculating measures, such as MAE, RMSE, and MAPE, to evaluate the accuracy of the exponential smoothing (ETS (M, Ad, M)) model to forecast future data {#appendix-21}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate evaluation metrics
+mae_hw <- mean(abs(residuals_hw))
+rmse_hw <- sqrt(mean(residuals_hw^2))
+mape_hw <- mean(abs(residuals_hw / test_data)) * 100
+bias_hw <- mean(residuals_hw)
+
+# Create a data frame for the metrics
+evaluation_hw <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", 
+             "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", 
+             "Forecast Bias"),
+  Value = c(mae_hw, rmse_hw, mape_hw, bias_hw)
+)
+
+# Remove column names
+colnames(evaluation_hw) <- NULL
+
+# Print the data frame
+cat("Table 9: Error measures evaluating ETS(M,Ad,M) model's
+    out-of-sample accuracy")
+print(evaluation_hw, row.names = FALSE, col.names = FALSE)
+
+```
+
+## Code plotting the Autocorrelation Function (ACF) in Figure \@ref(fig:f15) {#appendix-22}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+acf(training_data, main = "ACF: unemployment in Canada in 1962-1973")
+```
+
+## Code conducting the Augmented Dickey-Fuller (ADF) and Kwiatkowski-Phillips-Schmidt-Shin (KPSS) tests to determine the necessity of differencing {#appendix-23}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+library(tseries)
+cat("Table 10: Augmented Dickey-Fuller (ADF) test of the training data")
+adf.test(training_data, alternative = "stationary")
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+library(urca)
+cat("Table 11: Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test
+    of the training data")
+kpss.test(training_data)
+```
+
+## Code determining the appropriate number of first and seasonal differencing for the training data {#appendix-24}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Number of first differecings: ", ndiffs(training_data))
+
+cat("Number of seasonal differecings: ", nsdiffs(training_data))
+```
+
+## Code plotting the ACF/PACF functions for the differenced training data in Figure \@ref(fig:f16) {#appendix-25}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+training_diff <- diff(diff(training_data, differences = 1), lag = 4)
+
+# Set up a multi-panel plot with 1 row and 2 columns
+par(mfrow = c(1, 2))
+
+# Plot ACF for differenced data
+acf(training_diff, main = "Differenced unemployment")
+
+# Plot PACF for differenced data
+pacf(training_diff, main = "")
+```
+
+## Codes plotting the differenced historical data in Figure \@ref(fig:f17) together with performing the ADF and the KPSS tests {#appendix-26}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Plot Differenced Data
+autoplot(training_diff)+
+ ggtitle("Differenced unemployment in Canada in 1962-1973") +
+    xlab("Year")+
+    ylab("Differenced unemployment")+
+  guides(color = guide_legend(title = "")) 
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 12: Augmented Dickey-Fuller (ADF) test of the differenced data")
+adf.test(training_diff, alternative = "stationary")
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 13: Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test 
+    of the differenced data")
+kpss.test(training_diff)
+```
+
+## Code fitting and plotting ARIMA(0,1,0)(1,1,0)[4] model in in Figure \@ref(fig:f18) {#appendix-27}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 14: ARIMA(0,1,0)(1,1,0)[4] model summary")
+arima_model <- Arima(training_data, order = c(0,1,0), seasonal = c(1,1,0))
+summary(arima_model)
+```
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+autoplot(training_data, series="Data") +
+  autolayer(fitted(arima_model), series="Fitted") +
+  xlab("Year") + ylab("Unemployment") +
+ ggtitle("ARIMA(0,1,0)(1,1,0)[4] model: historical vs fitted values") +
+  guides(color = guide_legend(title = "")) 
+```
+
+## Code plotting residual analysis in Figure \@ref(fig:f19) {#appendix-28}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Plot histogram of residuals
+checkresiduals(arima_model)
+```
+
+## Code conducting the Shapiro-Wilk test assessing the normality of the residuals from the ARIMA model {#appendix-29}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Test for normality
+cat("Table 15: Shapiro-Wilk test of the ARIMA model’s training residuals")
+shapiro.test(arima_model$residuals)
+```
+
+## Code plotting ARIMA(0,1,0)(1,1,0)[4] model's eight-quarter forecast of unemployment in Canada in Figure \@ref(fig:f20) {#appendix-30}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Forecast
+forecast_arima <- forecast(arima_model, h = 8, 
+                           PI = TRUE, level = c(0.8, 0.95))
+
+# Plot the forecast and test data together
+autoplot(training_data) +
+  autolayer(forecast(arima_model, level = c(0.95)), 
+            series = "95% CI") +
+      autolayer(forecast(arima_model, level = c(0.8)), 
+                series = "80% CI") +
+  autolayer(test_data, color = "black", linetype = "dashed", 
+            series = "Future Data") +
+  xlab("Year") +
+  ylab("Unemployment") +
+  ggtitle("ARIMA(0,1,0)(1,1,0)[4] model: forecasts of unemployment in 
+          Canada") +
+  guides(color = guide_legend(title = "Forecasts"),
+         linetype = guide_legend(title = "Future Data"))
+
+```
+
+## Code conducting the Ljung-Box test and plotting the residual analysis in Figure \@ref(fig:f19) {#appendix-31}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate residuals
+residuals_arima <- forecast_arima$mean - test_data
+
+checkresiduals(residuals_arima)
+
+```
+
+## Code evaluating the ARIMA model’s forecasting accuracy {#appendix-32}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate evaluation metrics
+mae_arima <- mean(abs(residuals_arima))
+rmse_arima <- sqrt(mean(residuals_arima^2))
+mape_arima <- mean(abs(residuals_arima / test_data)) * 100
+bias_arima <- mean(residuals_arima)
+
+# Create a data frame for the metrics
+evaluation_arima <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", "Root Mean Squared Error (RMSE)", 
+             "Mean Absolute Percentage Error (MAPE)", "Forecast Bias"),
+  Value = c(mae_arima, rmse_arima, mape_arima, bias_arima)
+)
+
+# Remove column names
+colnames(evaluation_arima) <- NULL
+
+# Print the data frame
+cat("Table 16: Error measures evaluating the ARIMA model’s 
+    out-of-sample accuracy")
+print(evaluation_arima, row.names = FALSE, col.names = FALSE)
+
+```
+
+## Code comparing Mean Absolute Percentage Errors (MAPEs) among the three forecasting models {#appendix-33}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Store evaluation metrics for each model in a data frame
+evaluation_metrics <- data.frame(
+  Model = c("ARIMA", "Exponential Smoothing", "Regression"),
+  MAE = c(mae_arima, mae_hw, mae_regression),
+  RMSE = c(rmse_arima, rmse_hw, rmse_regression),
+  MAPE = c(mape_arima, mape_hw, mape_regression),
+  Bias = c(bias_arima, bias_hw, bias_regression)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 17: Error measures evaluating 
+    out-of-sample accuracy of the three models")
+print(evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for the evaluation metrics
+best_model <- evaluation_metrics[which.min(evaluation_metrics$MAPE), ]
+
+# Print the best model
+cat("Best Model based on MAPE:", best_model$Model, "\n")
+```
+
+## Code printing M3 competition series ID 1001 {#appendix-34}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+cat("Table 18: M3 competition series ID 1001")
+M3[[1001]]
+```
+
+## Code printing summaries of automatically fitted ARIMA models for each series (IDs 1001 to 1100) using `auto.arima()` function and printing respective forecasted values. {#appendix-35}
+#Unhide comments!
+
+```{r echo=TRUE, paged.print=TRUE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for ARIMA and benchmarks
+mape_arima <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_arima <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit ARIMA model
+  arima_fit <- auto.arima(train_data, ic = criterion)
+  # Print summary of the fitted ARIMA model
+  #cat("Summary for ARIMA model of Time Series ID:", s, "\n")
+ #print(summary(arima_fit))
+  #cat("\n")  # Add a newline after each summary
+
+  arima_fcst <- forecast(arima_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(arima_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for ARIMA
+  mape_arima[s - ts_start + 1] <- 100 * mean(abs(test_data - arima_fcst) / 
+                                                 test_data, na.rm = TRUE)
+  # Calculate sMAPE for ARIMA
+  smape_arima[s - ts_start + 1] <- 200 * mean(abs(test_data - arima_fcst) / 
+                                        (abs(test_data) + abs(arima_fcst)), 
+                                        na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data, h = h)
+  theta_fcst <- forecast(theta_fit)$mean
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / 
+                                                 test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / 
+                                        (abs(test_data) + abs(theta_fcst)), 
+                                        na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / 
+                                                    test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / 
+                                        (abs(test_data) + abs(damped_fcst)), 
+                                        na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+
+```
+
+## Code computing the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the ARIMA models, and comparing its performance with the Theta and Damped Exponential Smoothing models, which serve as benchmarks (benchmark models fitted in Appendix \@ref(appendix-35)) {#appendix-36}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_arima <- mean(mape_arima, na.rm = TRUE)
+avg_smape_arima <- mean(smape_arima, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+arima_batch_evaluation_metrics <- data.frame(
+  Model = c("ARIMA", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_arima, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_arima, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 19: Error measures evaluating automatic ARIMA model's
+    out-of-sample accuracy")
+print(arima_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+arima_batch_best_model_mape <- arima_batch_evaluation_metrics[which.min(
+    arima_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+arima_batch_best_model_smape <- arima_batch_evaluation_metrics[which.min(
+    arima_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", arima_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", arima_batch_best_model_smape$Model, "\n")
+
+```
+
+## Code printing summaries of automatically fitted ETS models for each series (IDs 1001 to 1100) and printing respective forecasted values. {#appendix-37}
+#Unhide comments!
+
+```{r echo=TRUE, paged.print=TRUE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for ETS and benchmarks
+mape_ets <- numeric(num_ts)
+smape_ets <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit ETS model
+  ets_fit <- ets(train_data)
+  # Print summary of the fitted ETS model
+  #cat("Summary for ETS model of Time Series ID:", s, "\n")
+  #print(summary(ets_fit))
+  #cat("\n")  # Add a newline after each summary
+  ets_fcst <- forecast(ets_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(ets_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for ETS
+  mape_ets[s - ts_start + 1] <- 100 * mean(abs(test_data - ets_fcst) / 
+                                        test_data, na.rm = TRUE)
+  # Calculate sMAPE for ETS
+  smape_ets[s - ts_start + 1] <- 200 * mean(abs(test_data - ets_fcst) / 
+                                        (abs(test_data) + abs(ets_fcst)), 
+                                        na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data, h = h)
+  theta_fcst <- forecast(theta_fit)$mean
+
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / 
+                                                 test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / 
+                                        (abs(test_data) + abs(theta_fcst)), 
+                                        na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / 
+                                                    test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / 
+                                            (abs(test_data) + abs(damped_fcst)), 
+                                            na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+
+```
+
+## Code computing the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the ETS models and comparing its performance with the Theta and Damped Exponential Smoothing models, which serve as benchmarks (benchmark models fitted in Appendix \@ref(appendix-37)) {#appendix-38}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_ets <- mean(mape_ets, na.rm = TRUE)
+avg_smape_ets <- mean(smape_ets, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+ets_batch_evaluation_metrics <- data.frame(
+  Model = c("ETS", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_ets, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_ets, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 20: Error measures evaluating automatic ETS model's 
+    out-of-sample accuracy")
+print(ets_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+ets_batch_best_model_mape <- ets_batch_evaluation_metrics[which.min(
+    ets_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+ets_batch_best_model_smape <- ets_batch_evaluation_metrics[which.min(
+    ets_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", ets_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", ets_batch_best_model_smape$Model, "\n")
+
+```
+
+## Code printing summaries of automatically fitted TBATS models for each series (IDs 1001 to 1100) and printing respective forecasted values. {#appendix-39}
+#Unhide comments!
+
+```{r echo=TRUE, paged.print=TRUE}
+# Define the series IDs and criterion
+ts_start <- 1001
+ts_end <- 1100
+criterion <- "aicc"
+num_ts <- ts_end - ts_start + 1
+
+# Initialize arrays to store MAPE and sMAPE for TBATS and benchmarks
+mape_tbats <- numeric(num_ts)
+mape_theta <- numeric(num_ts)
+mape_damped <- numeric(num_ts)
+smape_tbats <- numeric(num_ts)
+smape_theta <- numeric(num_ts)
+smape_damped <- numeric(num_ts)
+
+# Loop through each time series
+for (s in ts_start:ts_end) {
+  train_data <- M3[[s]]$x
+  test_data <- M3[[s]]$xx
+  h <- length(test_data)
+
+  # Fit TBATS model
+  tbats_fit <- tbats(train_data)
+  # Print summary of the fitted TBATS model
+  #cat("Summary for TBATS model of Time Series ID:", s, "\n")
+  #print(summary(tbats_fit))
+  #cat("\n")  # Add a newline after each summary
+  tbats_fcst <- forecast(tbats_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(tbats_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for TBATS
+  mape_tbats[s - ts_start + 1] <- 100 * mean(abs(test_data - tbats_fcst) / 
+                                                 test_data, na.rm = TRUE)
+  # Calculate sMAPE for TBATS
+  smape_tbats[s - ts_start + 1] <- 200 * mean(abs(test_data - tbats_fcst) / 
+                                        (abs(test_data) + abs(tbats_fcst)), 
+                                        na.rm = TRUE)
+
+  # Fit Theta model
+  theta_fit <- thetaf(train_data)
+  # Print summary of the fitted Theta model
+  #cat("Summary for Theta model of Time Series ID:", s, "\n")
+  #print(summary(theta_fit))
+  #cat("\n")  # Add a newline after each summary
+  theta_fcst <- forecast(theta_fit, h = h)$mean
+  # Print forecasts
+  #cat("Forecasts for Time Series ID:", s, "\n")
+  #print(theta_fcst)
+  #cat("\n")  # Add a newline after printing forecasts
+
+  # Calculate MAPE for Theta
+  mape_theta[s - ts_start + 1] <- 100 * mean(abs(test_data - theta_fcst) / 
+                                                 test_data, na.rm = TRUE)
+  # Calculate sMAPE for Theta
+  smape_theta[s - ts_start + 1] <- 200 * mean(abs(test_data - theta_fcst) / 
+                                        (abs(test_data) + abs(theta_fcst)), 
+                                         na.rm = TRUE)
+
+  # Fit Damped Exponential Smoothing model
+  tryCatch({
+    damped_model <- ets(train_data, model = "ZZZ", damped = TRUE)
+    damped_fcst <- forecast(damped_model, h = h)$mean
+    # Calculate MAPE for Damped Exponential Smoothing
+    mape_damped[s - ts_start + 1] <- 100 * mean(abs(test_data - damped_fcst) / 
+                                                    test_data, na.rm = TRUE)
+    # Calculate sMAPE for Damped Exponential Smoothing
+    smape_damped[s - ts_start + 1] <- 200 * mean(abs(test_data - damped_fcst) / 
+                                        (abs(test_data) + abs(damped_fcst)), 
+                                        na.rm = TRUE)
+  }, error = function(e) {
+    mape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+    smape_damped[s - ts_start + 1] <- NA  # Assign NA in case of error
+  })
+}
+```
+
+## Code computing the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for the TBATS models and comparing its performance with the Theta and Damped Exponential Smoothing models, which serve as benchmarks (benchmark models fitted in Appendix \@ref(appendix-39)) {#appendix-40}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Calculate average MAPE and sMAPE for each method
+avg_mape_tbats <- mean(mape_tbats, na.rm = TRUE)
+avg_smape_tbats <- mean(smape_tbats, na.rm = TRUE)
+avg_mape_theta <- mean(mape_theta, na.rm = TRUE)
+avg_smape_theta <- mean(smape_theta, na.rm = TRUE)
+avg_mape_damped <- mean(mape_damped, na.rm = TRUE)
+avg_smape_damped <- mean(smape_damped, na.rm = TRUE)
+
+# Store evaluation metrics for each model in a data frame
+tbats_batch_evaluation_metrics <- data.frame(
+  Model = c("TBATS", "Theta", "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_tbats, avg_mape_theta, avg_mape_damped),
+  sMAPE = c(avg_smape_tbats, avg_smape_theta, avg_smape_damped)
+)
+
+# Print the evaluation metrics for comparison
+cat("Table 21: Error measures evaluating automatic TBATS model's 
+    out-of-sample accuracy")
+print(tbats_batch_evaluation_metrics, row.names = FALSE)
+
+# Select the model with the lowest values for MAPE
+tbats_batch_best_model_mape <- tbats_batch_evaluation_metrics[which.min(
+    tbats_batch_evaluation_metrics$MAPE), ]
+
+# Select the model with the lowest values for sMAPE
+tbats_batch_best_model_smape <- tbats_batch_evaluation_metrics[which.min(
+    tbats_batch_evaluation_metrics$sMAPE), ]
+
+# Print the best model
+cat("Best model based on MAPE:", tbats_batch_best_model_mape$Model, "\n")
+cat("Best model based on sMAPE:", tbats_batch_best_model_smape$Model, "\n")
+
+```
+
+## Code computing the average Mean Absolute Percentage Error (MAPE) and Symmetric Mean Absolute Percentage Error (sMAPE) for all three models and comparing its performance with the Theta and Damped Exponential Smoothing models, which serve as benchmarks {#appendix-41}
+
+```{r echo=TRUE, eval=FALSE, paged.print=TRUE}
+# Store evaluation metrics for each method in a data frame
+evaluation_metrics_summary <- data.frame(
+  Method = c("ARIMA", 
+             "ETS", 
+             "TBATS", 
+             "Theta", 
+             "Damped Exponential Smoothing"),
+  MAPE = c(avg_mape_arima, 
+           avg_mape_ets, 
+           avg_mape_tbats, 
+           avg_mape_theta, 
+           avg_mape_damped),
+  sMAPE = c(avg_smape_arima, 
+            avg_smape_ets, 
+            avg_smape_tbats, 
+            avg_smape_theta, 
+            avg_smape_damped)
+)
+
+# Sort the data frame in ascending order based on both MAPE and sMAPE values
+sorted_metrics <- evaluation_metrics_summary[order(
+    evaluation_metrics_summary$MAPE, evaluation_metrics_summary$sMAPE), ]
+
+# Print the sorted data frame
+cat("Table 22: Error measures evaluating out-of-sample accuracy
+    of the automatic models")
+print(sorted_metrics, row.names = FALSE)
+
+# Identify the row corresponding to the best model
+best_model_row <- sorted_metrics[1, ]
+
+# Print the best model with highlighting
+cat("\nBest model based on MAPE and sMAPE:\n")
+print(best_model_row, row.names = FALSE)
+```
